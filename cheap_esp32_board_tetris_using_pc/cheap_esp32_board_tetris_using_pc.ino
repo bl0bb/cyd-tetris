@@ -18,6 +18,9 @@
 #define LED_GREEN 16
 #define LED_BLUE 17
 
+// backlight
+#define TFT_BL 21
+
 
 
 
@@ -32,11 +35,11 @@ enum GameShapeType : uint8_t;
 enum Direction : uint8_t;
 
 GameShapeType getRandomGameShapeType();
-std::vector<Vec2<uint8_t>> getShapeBlocks(GameShapeType shape_type, uint16_t shape);
-void spawnNewShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos);
-void placeShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos);
+std::array<Vec2<uint8_t>, 4> getShapeBlocks(GameShapeType shape_type, uint16_t shape);
+void spawnNewShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos);
+void placeShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos);
 uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, Direction dir);
-uint8_t dropShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, bool hardDrop);
+uint8_t dropShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos, bool hardDrop);
 uint8_t moveShape(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, Direction dir);
 
 
@@ -111,12 +114,12 @@ void keyboardInputReceived(const String &key, bool down) {
         keyboardKeyStates[i] = down;
         keyboardChangedStates[i] = keyboardKeyStates[i] != keyboardLastKeyStates[i];
 
-        Serial.print("KEY: ");
-        Serial.print(keyName);
-        Serial.print(" ");
-        Serial.print(down);
-        Serial.print(" ");
-        Serial.println(keyboardChangedStates[i]);
+        // Serial.print("KEY: ");
+        // Serial.print(keyName);
+        // Serial.print(" ");
+        // Serial.print(down);
+        // Serial.print(" ");
+        // Serial.println(keyboardChangedStates[i]);
 
         break;
       }
@@ -172,14 +175,29 @@ public:
   constexpr Vec2(const Vec2<U> &other)
     : x(static_cast<T>(other.x)), y(static_cast<T>(other.y)) {}
 
+
   Vec2<T> operator+(const Vec2<T> &other) const {
     return Vec2<T>(x + other.x, y + other.y);
   }
   Vec2<T> operator-(const Vec2<T> &other) const {
     return Vec2<T>(x - other.x, y - other.y);
   }
-  Vec2<T> operator*(float scalar) const {
-    return Vec2<T>(x * scalar, y * scalar);
+
+  template<typename U>
+  Vec2<T> operator+(U value) const {
+    return Vec2<T>(x + value, y + value);
+  }
+  template<typename U>
+  Vec2<T> operator-(U value) const {
+    return Vec2<T>(x - value, y - value);
+  }
+  template<typename U>
+  Vec2<T> operator*(U value) const {
+    return Vec2<T>(x * value, y * value);
+  }
+  template<typename U>
+  Vec2<T> operator/(U value) const {
+    return Vec2<T>(x / value, y / value);
   }
 
   template<typename U>
@@ -209,7 +227,7 @@ public:
 // bitset
 class BitSet {
 private:
-  std::vector<bool> bits;
+  std::vector<uint8_t> bits;
 
 public:
   // Default constructor
@@ -217,47 +235,40 @@ public:
 
   // Constructor to create a BitSet of given size
   BitSet(size_t _size)
-    : bits(_size, false) {}
+    : bits(_size, 0) {}
 
-  // Set a bit at a given position
-  void set(size_t pos) {
-    if (pos < bits.size()) {
-      bits[pos] = true;
+  // Get
+  bool get(size_t pos) const {
+    if (pos < bits.size() * 8) {
+      return (bits[pos / 8] >> (pos % 8)) & 1;
     } else {
-      throw std::runtime_error("Tried to set bit after end of bitset");
+      Serial.println("Tried to get bit after end of bitset");
+      throw std::runtime_error("Tried to get bit after end of bitset");
     }
   }
 
-  // Clear a bit at a given position
-  void clear(size_t pos) {
-    if (pos < bits.size()) {
-      bits[pos] = false;
+  // Set a bit at a given position
+  void set(size_t pos, bool value = true) {
+    if (pos < bits.size() * 8) {
+      if (value) {
+        bits[pos / 8] |= 1 << (pos % 8);
+      } else {
+        bits[pos / 8] &= ~(1 << (pos % 8));
+      }
     } else {
-      throw std::runtime_error("Tried to clear bit after end of bitset");
+      Serial.println("Tried to set bit after end of bitset");
+      throw std::runtime_error("Tried to set bit after end of bitset");
     }
   }
 
   // Toggle a bit at a given position
   void toggle(size_t pos) {
-    if (pos < bits.size()) {
-      bits[pos] = !bits[pos];
-    } else {
-      throw std::runtime_error("Tried to toggle bit after end of bitset");
-    }
-  }
-
-  // Check if a bit is set
-  bool get(size_t pos) const {
-    if (pos < bits.size()) {
-      return bits[pos];
-    } else {
-      throw std::runtime_error("Tried to toggle bit after end of bitset");
-    }
+    set(pos, !get(pos));
   }
 
   // Clear all bits
   void reset() {
-    std::fill(bits.begin(), bits.end(), false);
+    std::fill(bits.begin(), bits.end(), 0);
   }
 
   // Get size of the BitSet
@@ -378,21 +389,216 @@ public:
 
 
 
+
+
+// // container drawing
+void drawSmallContainer(Vec2<uint16_t> pos, Vec2<uint16_t> size) {
+
+  // get unmodified corners before starting to write to display
+  uint16_t corners[4] = {
+    tft.readPixel(pos.x, pos.y),
+    tft.readPixel(pos.x + size.x - 1, pos.y),
+    tft.readPixel(pos.x, pos.y + size.y - 1),
+    tft.readPixel(pos.x + size.x - 1, pos.y + size.y - 1),
+  };
+
+  tft.startWrite();
+  tft.setAddrWindow(pos.x, pos.y, size.x, size.y);
+
+  uint16_t bgColor = RGB565::rgbTo565(255, 255, 255);
+  uint16_t outlineColor = RGB565::rgbTo565(128, 128, 128);
+
+  {
+    // row 1
+    tft.pushColor(corners[0]);
+    for (uint16_t x = 1; x < size.x - 1; x++) {
+      tft.pushColor(bgColor);
+    }
+    tft.pushColor(corners[1]);
+    // row 2
+    for (uint16_t x = 0; x < 2; x++) {
+      tft.pushColor(bgColor);
+    }
+    for (uint16_t x = 2; x < size.x - 2; x++) {
+      tft.pushColor(outlineColor);
+    }
+    for (uint16_t x = size.x - 2; x < size.x; x++) {
+      tft.pushColor(bgColor);
+    }
+    // row 3
+    tft.pushColor(bgColor);
+    for (uint16_t x = 1; x < 3; x++) {
+      tft.pushColor(outlineColor);
+    }
+    for (uint16_t x = 3; x < size.x - 3; x++) {
+      tft.pushColor(bgColor);
+    }
+    for (uint16_t x = size.x - 3; x < size.x - 1; x++) {
+      tft.pushColor(outlineColor);
+    }
+    tft.pushColor(bgColor);
+  }
+
+  // middle section
+  for (uint16_t i = 0; i < size.y - 6; i++) {
+    tft.pushColor(bgColor);
+    tft.pushColor(outlineColor);
+    for (uint16_t x = 2; x < size.x - 2; x++) {
+      tft.pushColor(bgColor);
+    }
+    tft.pushColor(outlineColor);
+    tft.pushColor(bgColor);
+  }
+
+  {
+    // row 3
+    tft.pushColor(bgColor);
+    for (uint16_t x = 1; x < 3; x++) {
+      tft.pushColor(outlineColor);
+    }
+    for (uint16_t x = 3; x < size.x - 3; x++) {
+      tft.pushColor(bgColor);
+    }
+    for (uint16_t x = size.x - 3; x < size.x - 1; x++) {
+      tft.pushColor(outlineColor);
+    }
+    tft.pushColor(bgColor);
+    // row 2
+    for (uint16_t x = 0; x < 2; x++) {
+      tft.pushColor(bgColor);
+    }
+    for (uint16_t x = 2; x < size.x - 2; x++) {
+      tft.pushColor(outlineColor);
+    }
+    for (uint16_t x = size.x - 2; x < size.x; x++) {
+      tft.pushColor(bgColor);
+    }
+    // row 1
+    tft.pushColor(corners[2]);
+    for (uint16_t x = 1; x < size.x - 1; x++) {
+      tft.pushColor(bgColor);
+    }
+    tft.pushColor(corners[3]);
+  }
+
+  tft.endWrite();
+}
+
+// void rawDrawSmallContainerOutline(Vec2<uint16_t> pos, Vec2<uint16_t> size, Vec2<uint16_t> buf_size, uint16_t buf[], uint16_t color) {
+//   for (uint16_t x = 1; x < size.x - 1; x++) {
+//     buf[((pos.y + 0) * buf_size.x) + (pos.x + x)] = color;
+//     buf[((pos.y + size.y - 1) * buf_size.x) + (pos.x + x)] = color;
+//   }
+
+//   for (uint16_t y = 1; y < size.y - 1; y++) {
+//     buf[((pos.y + y) * buf_size.x) + (pos.x + 0)] = color;
+//     buf[((pos.y + y) * buf_size.x) + (pos.x + size.x - 1)] = color;
+//   }
+
+//   buf[((pos.y + 1) * buf_size.x) + (pos.x + 1)] = color;
+//   buf[((pos.y + 1) * buf_size.x) + (pos.x + size.x - 1 - 1)] = color;
+//   buf[((pos.y + size.y - 1 - 1) * buf_size.x) + (pos.x + 1)] = color;
+//   buf[((pos.y + size.y - 1 - 1) * buf_size.x) + (pos.x + size.x - 1 - 1)] = color;
+// }
+
+// void drawSmallContainer(Vec2<uint16_t> pos, Vec2<uint16_t> size) {
+
+//   // get unmodified corners before starting to write to display
+//   uint16_t corners[4] = {
+//     tft.readPixel(pos.x, pos.y),
+//     tft.readPixel(pos.x + size.x - 1, pos.y),
+//     tft.readPixel(pos.x, pos.y + size.y - 1),
+//     tft.readPixel(pos.x + size.x - 1, pos.y + size.y - 1),
+//   };
+
+//   tft.startWrite();
+//   tft.setAddrWindow(pos.x, pos.y, size.x, size.y);
+
+//   Serial.println("Buf 1");
+//   uint16_t buf[size.x * size.y];
+//   Serial.println("Buf 2");
+
+//   uint16_t bgColor = RGB565::rgbTo565(255, 255, 255);
+//   uint16_t outlineColor = RGB565::rgbTo565(128, 128, 128);
+
+//   for (uint16_t y = 2; y < size.y - 2; y++) {
+//     for (uint16_t x = 2; x < size.x - 2; x++) {
+//       buf[(y * size.x) + x] = bgColor;
+//     }
+//   }
+
+//   // fill in the corners
+//   buf[(0) + (0)] = corners[0];
+//   buf[(0) + (size.x - 1)] = corners[1];
+//   buf[(size.y - 1) + (0)] = corners[2];
+//   buf[(size.y - 1) + (size.x - 1)] = corners[3];
+
+//   // outline
+//   rawDrawSmallContainerOutline(Vec2<uint16_t>(), size, size, buf, bgColor);
+
+//   // inner outline
+//   rawDrawSmallContainerOutline(Vec2<uint16_t>(1, 1), size - Vec2<uint16_t>(2, 2), size, buf, outlineColor);
+
+//   // push buffer to display
+//   for (uint16_t i = 0; i < size.x * size.y; i++) {
+//     tft.pushColor(buf[i]);
+//   }
+
+//   tft.endWrite();
+// }
+
+
+
+
+
+
+
+
 // font drawing
 void drawCharPixels(Vec2<uint16_t> pos, uint64_t ch, Vec2<uint8_t> font_size, uint16_t color = RGB565::rgbTo565(255, 255, 255)) {
+  uint16_t prevBuf[font_size.x * font_size.y];
+  for (uint16_t y = 0; y < font_size.y; y++) {
+    for (uint16_t x = 0; x < font_size.x; x++) {
+      prevBuf[(y * font_size.x) + x] = tft.readPixel(pos.x + x, pos.y + y);
+    }
+  }
+
   tft.startWrite();
   tft.setAddrWindow(pos.x, pos.y, font_size.x, font_size.y);
-  for (uint16_t i = 0; i < font_size.x * font_size.y; i++) {
-    uint16_t curColor;
-    if ((ch >> i) & 1) {
-      curColor = color;
-    } else {
-      curColor = RGB565::rgbTo565(0, 0, 0);
-    }
 
-    tft.pushColor(curColor);
+  for (uint16_t y = 0; y < font_size.y; y++) {
+    for (uint16_t x = 0; x < font_size.x; x++) {
+      uint16_t i = (y * font_size.x) + x;
+
+      uint16_t curColor;
+
+      if ((ch >> i) & 1) {
+        curColor = color;
+      } else {
+        curColor = prevBuf[i];
+      }
+
+      tft.pushColor(curColor);
+    }
   }
+
   tft.endWrite();
+
+
+
+  // tft.startWrite();
+  // tft.setAddrWindow(pos.x, pos.y, font_size.x, font_size.y);
+  // for (uint16_t i = 0; i < font_size.x * font_size.y; i++) {
+  //   uint16_t curColor;
+  //   if ((ch >> i) & 1) {
+  //     curColor = color;
+  //   } else {
+  //     curColor = RGB565::rgbTo565(0, 0, 0);
+  //   }
+
+  //   tft.pushColor(curColor);
+  // }
+  // tft.endWrite();
 }
 
 void drawChar(uint64_t *font, Vec2<uint16_t> pos, uint64_t ch, Vec2<uint8_t> font_size, uint16_t color = RGB565::rgbTo565(255, 255, 255)) {
@@ -425,7 +631,7 @@ void drawString(uint64_t *font, Vec2<uint16_t> pos, const String &str, Vec2<uint
 
 
 
-// drawing
+// game grid / block drawing
 void drawBlockRaw(Vec2<uint16_t> *pos, uint16_t color) {
   uint16_t buf[BLOCK_SIZE * BLOCK_SIZE] = { 0 };
 
@@ -512,35 +718,30 @@ void drawEmptyBlockRaw(Vec2<uint16_t> pos) {
   tft.endWrite();
 }
 
-// void drawBlockGrid(uint16_t *block_colors, BitSet *block_presence, uint8_t gridX, uint8_t gridY, uint8_t gridWidth, uint8_t gridHeight) {
-//   uint16_t startX = SCREEN_WIDTH - BLOCK_GRID_WIDTH;
-//   uint16_t startY = SCREEN_HEIGHT - BLOCK_SIZE;
+void drawBlockGrid(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence) {
+  uint16_t startX = SCREEN_WIDTH - BLOCK_GRID_WIDTH;
+  uint16_t startY = SCREEN_HEIGHT - BLOCK_SIZE;
 
-//   for (uint16_t y = 0; y < gridHeight; y++) {
-//     for (uint16_t x = 0; x < gridWidth; x++) {
-//       uint16_t ax = gridX + x;
-//       uint16_t ay = gridY + y;
+  for (uint8_t y = 0; y < grid_size->y; y++) {
+    for (uint8_t x = 0; x < grid_size->x; x++) {
+      uint16_t i = (y * grid_size->x) + x;
 
-//       uint16_t i = (y * gridWidth) + x;
+      Vec2<uint16_t> drawPos(startX + x * BLOCK_SIZE, startY - y * BLOCK_SIZE);
 
-//       Vec2<uint16_t> pos = Vec2<uint16_t>(startX + (ax * BLOCK_SIZE), startY - (ay * BLOCK_SIZE));
-
-//       // skip if no block here
-//       if (block_presence->get(i) == 0) {
-//         drawEmptyBlockRaw(pos);
-//         continue;
-//       }
-
-//       drawBlockRaw(&pos, block_colors[i]);
-//     }
-//   }
-// }
+      if (block_presence->get(i)) {
+        drawBlockRaw(&drawPos, block_colors[i]);
+      } else {
+        drawEmptyBlockRaw(drawPos);
+      }
+    }
+  }
+}
 
 void drawBlocksInShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, uint16_t color) {
   uint16_t startX = SCREEN_WIDTH - BLOCK_GRID_WIDTH;
   uint16_t startY = SCREEN_HEIGHT - BLOCK_SIZE;
 
-  std::vector<Vec2<uint8_t>> blocks = getShapeBlocks(*shape_type, *shape);
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
   for (uint8_t i = 0; i < 4; i++) {
     Vec2<uint8_t> blockPos = blocks[i];
     Vec2<uint8_t> pos = *shape_pos + blockPos;
@@ -559,7 +760,7 @@ void drawEmptyBlocksInShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type,
   uint16_t startX = SCREEN_WIDTH - BLOCK_GRID_WIDTH;
   uint16_t startY = SCREEN_HEIGHT - BLOCK_SIZE;
 
-  std::vector<Vec2<uint8_t>> blocks = getShapeBlocks(*shape_type, *shape);
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
   for (uint8_t i = 0; i < 4; i++) {
     Vec2<uint8_t> blockPos = blocks[i];
     Vec2<uint8_t> pos = *shape_pos + blockPos;
@@ -667,37 +868,50 @@ constexpr uint8_t createWallKickTest(int8_t x, int8_t y) {
   return result;
 }
 
+constexpr Vec2<int8_t> wallKickTestToVec2(uint8_t kick_test) {
+  Vec2<int8_t> vec(kick_test & 0b11, (kick_test >> 3) & 0b11);
+  if ((kick_test >> 2) & 0b1) {
+    vec.x = -vec.x;
+  }
+  if ((kick_test >> 5) & 0b1) {
+    vec.y = -vec.y;
+  }
+  return vec;
+}
+
 const uint8_t game_shape_kick_tests[][8][5] = {
+  // J L S Z T
   {
-    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, +1), createWallKickTest(0, -2), createWallKickTest(-1, -2) },
-    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, -1), createWallKickTest(0, +2), createWallKickTest(+1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, -1), createWallKickTest(0, +2), createWallKickTest(+1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, +1), createWallKickTest(0, -2), createWallKickTest(-1, -2) },
-    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, +1), createWallKickTest(0, -2), createWallKickTest(+1, -2) },
-    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, -1), createWallKickTest(0, +2), createWallKickTest(-1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, -1), createWallKickTest(0, +2), createWallKickTest(-1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, +1), createWallKickTest(0, -2), createWallKickTest(+1, -2) },
+    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, +1), createWallKickTest(0, -2), createWallKickTest(+1, -2) },  // 0 -> L
+    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, +1), createWallKickTest(0, -2), createWallKickTest(-1, -2) },  // 0 -> R
+    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, -1), createWallKickTest(0, +2), createWallKickTest(+1, +2) },  // R -> 0
+    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, -1), createWallKickTest(0, +2), createWallKickTest(+1, +2) },  // R -> 2
+    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, +1), createWallKickTest(0, -2), createWallKickTest(-1, -2) },  // 2 -> R
+    { createWallKickTest(0, 0), createWallKickTest(+0, 0), createWallKickTest(+1, +1), createWallKickTest(0, -2), createWallKickTest(+1, -2) },  // 2 -> L
+    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, -1), createWallKickTest(0, +2), createWallKickTest(-1, +2) },  // L -> 2
+    { createWallKickTest(0, 0), createWallKickTest(-0, 0), createWallKickTest(-1, -1), createWallKickTest(0, +2), createWallKickTest(-1, +2) },  // L -> 0
   },
+  // I
   {
-    { createWallKickTest(0, 0), createWallKickTest(-2, 0), createWallKickTest(+1, 0), createWallKickTest(-2, -1), createWallKickTest(+1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(+2, 0), createWallKickTest(-1, 0), createWallKickTest(+2, +1), createWallKickTest(-1, -2) },
-    { createWallKickTest(0, 0), createWallKickTest(-1, 0), createWallKickTest(+2, 0), createWallKickTest(-1, +2), createWallKickTest(+2, -1) },
-    { createWallKickTest(0, 0), createWallKickTest(+1, 0), createWallKickTest(-2, 0), createWallKickTest(+1, -2), createWallKickTest(-2, +1) },
-    { createWallKickTest(0, 0), createWallKickTest(+2, 0), createWallKickTest(-1, 0), createWallKickTest(+2, +1), createWallKickTest(-1, -2) },
-    { createWallKickTest(0, 0), createWallKickTest(-2, 0), createWallKickTest(+1, 0), createWallKickTest(-2, -1), createWallKickTest(+1, +2) },
-    { createWallKickTest(0, 0), createWallKickTest(+1, 0), createWallKickTest(-2, 0), createWallKickTest(+1, -2), createWallKickTest(-2, +1) },
-    { createWallKickTest(0, 0), createWallKickTest(-1, 0), createWallKickTest(+2, 0), createWallKickTest(-1, +2), createWallKickTest(+2, -1) },
+    { createWallKickTest(0, 0), createWallKickTest(-1, 0), createWallKickTest(+2, 0), createWallKickTest(-1, +2), createWallKickTest(+2, -1) },  // 0 -> L
+    { createWallKickTest(0, 0), createWallKickTest(-2, 0), createWallKickTest(+1, 0), createWallKickTest(-2, -1), createWallKickTest(+1, +2) },  // 0 -> R
+    { createWallKickTest(0, 0), createWallKickTest(+2, 0), createWallKickTest(-1, 0), createWallKickTest(+2, +1), createWallKickTest(-1, -2) },  // R -> 0
+    { createWallKickTest(0, 0), createWallKickTest(-1, 0), createWallKickTest(+2, 0), createWallKickTest(-1, +2), createWallKickTest(+2, -1) },  // R -> 2
+    { createWallKickTest(0, 0), createWallKickTest(+1, 0), createWallKickTest(-2, 0), createWallKickTest(+1, -2), createWallKickTest(-2, +1) },  // 2 -> R
+    { createWallKickTest(0, 0), createWallKickTest(+2, 0), createWallKickTest(-1, 0), createWallKickTest(+2, +1), createWallKickTest(-1, -2) },  // 2 -> L
+    { createWallKickTest(0, 0), createWallKickTest(-2, 0), createWallKickTest(+1, 0), createWallKickTest(-2, -1), createWallKickTest(+1, +2) },  // L -> 2
+    { createWallKickTest(0, 0), createWallKickTest(+1, 0), createWallKickTest(-2, 0), createWallKickTest(+1, -2), createWallKickTest(-2, +1) },  // L -> 0
   },
 };
 
-const uint8_t game_shape_kick_references[] = {
-  game_shape_kick_tests[1],  // I
-  nullptr,                   // O
-  game_shape_kick_tests[0],  // J
-  game_shape_kick_tests[0],  // L
-  game_shape_kick_tests[0],  // S
-  game_shape_kick_tests[0],  // Z
-  game_shape_kick_tests[0],  // T
+const uint8_t (*game_shape_kick_references[])[8][5] = {
+  &game_shape_kick_tests[1],  // I
+  nullptr,                    // O
+  &game_shape_kick_tests[0],  // J
+  &game_shape_kick_tests[0],  // L
+  &game_shape_kick_tests[0],  // S
+  &game_shape_kick_tests[0],  // Z
+  &game_shape_kick_tests[0],  // T
 };
 
 
@@ -722,15 +936,15 @@ Vec2<uint8_t> game_font_size(8, 8);
 
 // game functions
 void setBlock(uint16_t *block_colors, BitSet *block_presence, Vec2<uint8_t> *blockPos, Vec2<uint8_t> *gridSize, uint16_t color) {
-  if (blockPos->x > gridSize->x) {
-    Serial.print("X exceeded grid size ");
-    Serial.println(blockPos->x);
-    return;
-  } else if (blockPos->y > gridSize->y) {
-    Serial.print("Y exceeded grid size ");
-    Serial.println(blockPos->y);
-    return;
-  }
+  // if (blockPos->x > gridSize->x) {
+  //   Serial.print("X exceeded grid size ");
+  //   Serial.println(blockPos->x);
+  //   return;
+  // } else if (blockPos->y > gridSize->y) {
+  //   Serial.print("Y exceeded grid size ");
+  //   Serial.println(blockPos->y);
+  //   return;
+  // }
 
   uint16_t i = (blockPos->y * gridSize->x) + blockPos->x;
   block_presence->set(i);
@@ -738,18 +952,18 @@ void setBlock(uint16_t *block_colors, BitSet *block_presence, Vec2<uint8_t> *blo
 }
 
 void removeBlock(uint16_t *block_colors, BitSet *block_presence, Vec2<uint8_t> *blockPos, Vec2<uint8_t> *gridSize) {
-  if (blockPos->x > gridSize->x) {
-    Serial.print("X exceeded grid size ");
-    Serial.println(blockPos->x);
-    return;
-  } else if (blockPos->y > gridSize->y) {
-    Serial.print("Y exceeded grid size ");
-    Serial.println(blockPos->y);
-    return;
-  }
+  // if (blockPos->x > gridSize->x) {
+  //   Serial.print("X exceeded grid size ");
+  //   Serial.println(blockPos->x);
+  //   return;
+  // } else if (blockPos->y > gridSize->y) {
+  //   Serial.print("Y exceeded grid size ");
+  //   Serial.println(blockPos->y);
+  //   return;
+  // }
 
   uint16_t i = (blockPos->y * gridSize->x) + blockPos->x;
-  block_presence->clear(i);
+  block_presence->set(i, false);
   block_colors[i] = 0;
 }
 
@@ -758,9 +972,9 @@ GameShapeType getRandomGameShapeType() {
   // return static_cast<GameShapeType>((rand() / (float)(RAND_MAX + 1)) * SHAPE_COUNT);
 }
 
-std::vector<Vec2<uint8_t>> getShapeBlocks(GameShapeType shape_type, uint16_t shape) {
+std::array<Vec2<uint8_t>, 4> getShapeBlocks(GameShapeType shape_type, uint16_t shape) {
   uint8_t resultIdx = 0;
-  std::vector<Vec2<uint8_t>> result(4);
+  std::array<Vec2<uint8_t>, 4> result;
 
   uint8_t size = game_shape_meta[shape_type].getSize();
 
@@ -781,30 +995,119 @@ std::vector<Vec2<uint8_t>> getShapeBlocks(GameShapeType shape_type, uint16_t sha
   return result;
 }
 
-void spawnNewShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos) {
+void spawnNewShape(Vec2<uint8_t> *grid_size, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos) {
   *shape_type = getRandomGameShapeType();
   *shape = game_shape_blocks[*shape_type];
+  *shape_rot_index = 0;
   *shape_pos = Vec2<uint8_t>(grid_size->x / 2 - 1, grid_size->y);
 }
 
-void placeShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos) {
-  std::vector<Vec2<uint8_t>> blocks = getShapeBlocks(*shape_type, *shape);
+void placeShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos) {
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
 
+  // array containing y levels that were modified by placing this shape
+  uint8_t changedHeightsCount = 0;
+  uint8_t changedHeights[4];
+
+  // place the blocks
+  // and populate changedHeights
   uint16_t color = game_shape_colors[*shape_type];
   for (uint8_t i = 0; i < 4; i++) {
     Vec2<uint8_t> blockPos = blocks[i];
     Vec2<uint8_t> pos = *shape_pos + blockPos;
 
     setBlock(block_colors, block_presence, &pos, grid_size, color);
+
+    bool foundChangedHeight = false;
+    for (uint8_t j = 0; j < changedHeightsCount; j++) {
+      if (changedHeights[j] == pos.y) {
+        foundChangedHeight = true;
+        break;
+      }
+    }
+    if (!foundChangedHeight) {
+      changedHeights[changedHeightsCount++] = pos.y;
+    }
   }
 
-  spawnNewShape(grid_size, shape_type, shape, shape_pos);
+
+  // array containing y levels that were cleared
+  uint8_t clearedHeightsCount = 0;
+  uint8_t clearedHeights[4];
+
+  // check if any of the modified y levels clear lines
+  for (uint8_t i = 0; i < changedHeightsCount; i++) {
+    uint8_t y = changedHeights[i];
+
+    uint16_t baseI = y * grid_size->x;
+
+    bool clearLine = true;
+    for (uint8_t x = 0; x < grid_size->x; x++) {
+      uint16_t i = baseI + x;
+
+      if (!block_presence->get(i)) {
+        clearLine = false;
+        break;
+      }
+    }
+
+    if (clearLine) {
+      clearedHeights[clearedHeightsCount++] = y;
+    }
+  }
+
+  // move blocks above cleared lines downward
+  if (clearedHeightsCount > 0) {
+    uint8_t clearedIdx = 0;
+    uint8_t targetY = clearedHeights[clearedIdx];
+    uint8_t y = targetY;
+    uint8_t copyY = y;
+
+    while (y < grid_size->y) {
+      while (copyY == targetY) {
+        copyY++;
+        clearedIdx++;
+        if (clearedIdx < clearedHeightsCount) {
+          targetY = clearedHeights[clearedIdx];
+        }
+      }
+
+
+      // copy blocks from copy row into this row
+      for (uint8_t x = 0; x < grid_size->x; x++) {
+        uint16_t curIdx = (y * grid_size->x) + x;
+        uint16_t targetIdx = (copyY * grid_size->x) + x;
+
+        bool presence;
+        uint16_t color;
+        if (targetIdx >= grid_size->x * grid_size->y) {
+          presence = false;
+        } else {
+          presence = block_presence->get(targetIdx);
+          if (presence) {
+            color = block_colors[targetIdx];
+          }
+        }
+
+        block_presence->set(curIdx, presence);
+        if (presence) {
+          block_colors[curIdx] = color;
+        }
+      }
+      y++;
+      copyY++;
+    }
+  }
+
+  drawBlockGrid(grid_size, block_colors, block_presence);
+
+  spawnNewShape(grid_size, shape_type, shape, shape_rot_index, shape_pos);
 }
 
 uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, Direction dir) {
-  std::vector<Vec2<uint8_t>> blocks = getShapeBlocks(*shape_type, *shape);
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
 
-  uint8_t minDist = grid_size->y;
+  uint8_t minDist = 1000;
   for (uint8_t i = 0; i < 4; i++) {
     Vec2<uint8_t> blockPos = blocks[i];
     Vec2<uint8_t> pos = *shape_pos + blockPos;
@@ -815,6 +1118,7 @@ uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameS
     } else {
       posDim = pos.x;
     }
+
     int8_t target;
     if (dir == DIRECTION_UP) {
       target = grid_size->y - 1;
@@ -826,13 +1130,14 @@ uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameS
       target = grid_size->x - 1;
     }
 
-    int8_t dim;
-    if (dir == DIRECTION_UP || dir == DIRECTION_RIGHT) {
-      dim = posDim + 1;
-    } else if (dir == DIRECTION_DOWN || dir == DIRECTION_LEFT) {
-      dim = posDim - 1;
-    }
-    for (; dim >= 0; dim--) {
+    int8_t dim = posDim;
+    while (dim != target) {
+      if (dir == DIRECTION_UP || dir == DIRECTION_RIGHT) {
+        dim++;
+      } else if (dir == DIRECTION_DOWN || dir == DIRECTION_LEFT) {
+        dim--;
+      }
+
       uint8_t cx;
       uint8_t cy;
       if (dir == DIRECTION_UP || dir == DIRECTION_DOWN) {
@@ -855,7 +1160,7 @@ uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameS
         minDist = min(static_cast<uint8_t>(abs(dim - posDim) - 1), minDist);
       }
     }
-    if (dim == -1) {
+    if (dim == target) {
       minDist = min(static_cast<uint8_t>(abs(target - posDim)), minDist);
     }
   }
@@ -863,7 +1168,7 @@ uint8_t getDistanceToHit(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameS
   return minDist;
 }
 
-uint8_t dropShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, bool hardDrop) {
+uint8_t dropShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos, bool hardDrop) {
   uint8_t distance = getDistanceToHit(grid_size, block_presence, shape_type, shape, shape_pos, DIRECTION_DOWN);
 
   if (hardDrop) {
@@ -872,10 +1177,10 @@ uint8_t dropShape(Vec2<uint8_t> *grid_size, uint16_t *block_colors, BitSet *bloc
       shape_pos->y -= distance;
       drawBlocksInShape(grid_size, shape_type, shape, shape_pos, game_shape_colors[*shape_type]);
     }
-    placeShape(grid_size, block_colors, block_presence, shape_type, shape, shape_pos);
+    placeShape(grid_size, block_colors, block_presence, shape_type, shape, shape_rot_index, shape_pos);
   } else {
     if (distance == 0) {
-      placeShape(grid_size, block_colors, block_presence, shape_type, shape, shape_pos);
+      placeShape(grid_size, block_colors, block_presence, shape_type, shape, shape_rot_index, shape_pos);
     } else {
       drawEmptyBlocksInShape(grid_size, shape_type, shape, shape_pos);
       shape_pos->y--;
@@ -907,7 +1212,7 @@ uint8_t moveShape(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeTyp
 }
 
 void rotateShapeBlocks(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, bool rotateDir) {
-  std::vector<Vec2<uint8_t>> blocks = getShapeBlocks(*shape_type, *shape);
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
 
   const GameShapeMeta &meta = game_shape_meta[*shape_type];
 
@@ -936,15 +1241,6 @@ void rotateShapeBlocks(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameSha
       }
     }
 
-    // Serial.print("Rotated block: ");
-    // Serial.print(pos.x);
-    // Serial.print(" ");
-    // Serial.print(pos.y);
-    // Serial.print(" ");
-    // Serial.print(newPos.x);
-    // Serial.print(" ");
-    // Serial.println(newPos.y);
-
     newPos += origin;
 
     newShape |= 1 << ((newPos.y * size) + newPos.x);
@@ -953,11 +1249,78 @@ void rotateShapeBlocks(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameSha
   *shape = newShape;
 }
 
-void rotateShape(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, bool rotateDir) {
-  drawEmptyBlocksInShape(grid_size, shape_type, shape, shape_pos);
-  rotateShapeBlocks(grid_size, block_presence, shape_type, shape, shape_pos, rotateDir);
-  drawBlocksInShape(grid_size, shape_type, shape, shape_pos, game_shape_colors[*shape_type]);
+bool solveWallKicks(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos, bool rotateDir) {
+  const uint8_t(*kick_tests_list)[8][5] = game_shape_kick_references[*shape_type];
+
+  // shape cant (doesnt have a reason to wall kick, e.g. the O tetromino)
+  if (kick_tests_list == nullptr) {
+    return false;
+  }
+
+  const uint8_t(*kick_tests)[5] = &(*kick_tests_list)[(*shape_rot_index * 2) + (rotateDir ? 1 : 0)];
+
+  std::array<Vec2<uint8_t>, 4> blocks = getShapeBlocks(*shape_type, *shape);
+
+  bool found_kick = false;
+  Vec2<int8_t> new_pos;
+  for (uint8_t i = 0; i < 5; i++) {
+    // add kick test offset to shape position
+    new_pos = Vec2<int8_t>(*shape_pos) + wallKickTestToVec2((*kick_tests)[i]);
+
+    // check that all blocks are in grid and no blocks overlap
+    bool valid_kick = true;
+    for (uint8_t j = 0; j < 4; j++) {
+      Vec2<int8_t> block_pos = new_pos + Vec2<int8_t>(blocks[j]);
+
+      if (block_pos.x < 0 || block_pos.y < 0 || block_pos.x >= grid_size->x || block_pos.y >= grid_size->y) {
+        valid_kick = false;
+        break;
+      }
+
+      uint16_t presence_index = (block_pos.y * grid_size->x) + block_pos.x;
+
+      if (block_presence->get(presence_index)) {
+        valid_kick = false;
+        break;
+      }
+    }
+
+    if (valid_kick) {
+      found_kick = true;
+      break;
+    }
+  }
+
+  if (found_kick) {
+    *shape_rot_index = (*shape_rot_index + (rotateDir ? 1 : -1)) % 4;
+    *shape_pos = Vec2<uint8_t>(new_pos);
+  }
+
+  return found_kick;
 }
+
+void rotateShape(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, uint8_t *shape_rot_index, Vec2<uint8_t> *shape_pos, bool rotateDir) {
+  // create a temporary shape and try and wall kick
+  uint16_t new_shape = *shape;
+  uint8_t new_shape_rot_index = *shape_rot_index;
+  Vec2<uint8_t> new_shape_pos = *shape_pos;
+  rotateShapeBlocks(grid_size, block_presence, shape_type, &new_shape, &new_shape_pos, rotateDir);
+
+  bool success = solveWallKicks(grid_size, block_presence, shape_type, &new_shape, &new_shape_rot_index, &new_shape_pos, rotateDir);
+  if (success) {
+    drawEmptyBlocksInShape(grid_size, shape_type, shape, shape_pos);
+    *shape = new_shape;
+    *shape_rot_index = new_shape_rot_index;
+    *shape_pos = new_shape_pos;
+    drawBlocksInShape(grid_size, shape_type, shape, shape_pos, game_shape_colors[*shape_type]);
+  }
+}
+
+// void rotateShape(Vec2<uint8_t> *grid_size, BitSet *block_presence, GameShapeType *shape_type, uint16_t *shape, Vec2<uint8_t> *shape_pos, bool rotateDir) {
+//   drawEmptyBlocksInShape(grid_size, shape_type, shape, shape_pos);
+//   rotateShapeBlocks(grid_size, block_presence, shape_type, shape, shape_pos, rotateDir);
+//   drawBlocksInShape(grid_size, shape_type, shape, shape_pos, game_shape_colors[*shape_type]);
+// }
 
 
 
@@ -970,6 +1333,7 @@ BitSet game_block_presence;
 
 GameShapeType game_shape_type;
 uint16_t game_shape;
+uint8_t game_shape_rot_index;
 Vec2<uint8_t> game_shape_pos;
 
 // counters
@@ -977,10 +1341,6 @@ unsigned long lastInputUpdate;
 unsigned long lastGameShapeMove;
 unsigned long lastGameShapeDrop;
 unsigned long lastGameManualShapeDrop;
-
-// debounce
-bool canRotateShapeCW;
-bool canRotateShapeCCW;
 
 void setup() {
   // game setup
@@ -993,7 +1353,7 @@ void setup() {
   game_block_colors = (uint16_t *)malloc(sizeof(uint16_t) * game_blocks_count);
   std::memset(game_block_colors, 0, game_blocks_count);
 
-  game_block_presence = BitSet(game_grid_size.x * game_grid_size.y);
+  game_block_presence = BitSet(ceil((game_grid_size.x * game_grid_size.y) / 8.0f));
   game_block_presence.reset();
 
 
@@ -1004,10 +1364,6 @@ void setup() {
   lastGameShapeMove = curMillis;
   lastGameShapeDrop = curMillis;
   lastGameManualShapeDrop = curMillis;
-
-  // initialize debounce
-  canRotateShapeCW = true;
-  canRotateShapeCCW = true;
 
 
   // serial init
@@ -1051,34 +1407,182 @@ void setup() {
   // }
 
 
-  // border of game blocks
-  tft.drawRect(SCREEN_WIDTH - BLOCK_GRID_WIDTH - 2, 0, 2, SCREEN_HEIGHT, RGB565::rgbTo565(255, 255, 255));
+
+  drawBlockGrid(&game_grid_size, game_block_colors, &game_block_presence);
 
 
 
 
   // start game
-  spawnNewShape(&game_grid_size, &game_shape_type, &game_shape, &game_shape_pos);
-
-
-
-  // drawBlockGrid(game_block_colors, &game_block_presence, 0, 0, BLOCK_GRID_BLOCKS_X, BLOCK_GRID_BLOCKS_Y);
+  spawnNewShape(&game_grid_size, &game_shape_type, &game_shape, &game_shape_rot_index, &game_shape_pos);
 
 
 
 
-  drawString(game_font, Vec2<uint16_t>(0, 0), "Hello, World!", game_font_size);
 
 
 
-  // set LED color to green
+  // pin setup
+
+  // back RGB led
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
 
+  // disable back led
   digitalWrite(LED_RED, HIGH);
   digitalWrite(LED_GREEN, HIGH);
   digitalWrite(LED_BLUE, HIGH);
+
+
+  // keep direct display pin modifications after the tft commands to prevent conflicts
+  // pinMode(TFT_BL, OUTPUT);
+  // digitalWrite(TFT_BL, LOW);
+
+
+
+
+
+
+
+
+  // ui
+
+
+
+  // border of game blocks
+  uint16_t infoGameBorderWidth = 2;
+
+  tft.drawRect(SCREEN_WIDTH - BLOCK_GRID_WIDTH - infoGameBorderWidth, 0, infoGameBorderWidth, SCREEN_HEIGHT, RGB565::rgbTo565(255, 255, 255));
+
+
+  // info
+  Vec2<uint16_t> infoSize(SCREEN_WIDTH - BLOCK_GRID_WIDTH - infoGameBorderWidth, SCREEN_HEIGHT);
+
+  Vec2<uint16_t> infoCenter = infoSize / 2;
+
+
+  // score
+  Vec2<uint16_t> scoreContainerSize = Vec2<uint16_t>((8 * 5) + 6, (8 * 1) + 6);
+  Vec2<uint16_t> scoreContainerPos = Vec2<uint16_t>(infoCenter.x - (scoreContainerSize.x / 2));
+
+  // score background
+  {
+    uint16_t currentY = scoreContainerPos.y + (scoreContainerSize.y / 2);
+    // 1 short line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 2);
+    for (uint16_t y = 0; y < 2; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(255, 255, 255));
+      }
+    }
+    tft.endWrite();
+    currentY += 2;
+
+    // 2 tall line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 8);
+    for (uint16_t y = 0; y < 8; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(128, 128, 128));
+      }
+    }
+    tft.endWrite();
+    currentY += 8;
+
+    // 3 short line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 2);
+    for (uint16_t y = 0; y < 2; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(255, 255, 255));
+      }
+    }
+    tft.endWrite();
+    currentY += 2;
+
+    // 4 short line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 2);
+    for (uint16_t y = 0; y < 2; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(128, 128, 128));
+      }
+    }
+    tft.endWrite();
+    currentY += 2;
+
+    // 5 tall line (for score)
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 12);  // 8 + 4
+    for (uint16_t y = 0; y < 12; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(255, 255, 255));
+      }
+    }
+    tft.endWrite();
+    currentY += 12;
+
+    // 6 short line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 2);
+    for (uint16_t y = 0; y < 2; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(128, 128, 128));
+      }
+    }
+    tft.endWrite();
+    currentY += 2;
+
+    // 7 short line
+    tft.startWrite();
+    tft.setAddrWindow(0, currentY, infoSize.x, 2);
+    for (uint16_t y = 0; y < 2; y++) {
+      for (uint16_t x = 0; x < infoSize.x; x++) {
+        tft.pushColor(RGB565::rgbTo565(255, 255, 255));
+      }
+    }
+    tft.endWrite();
+    currentY += 2;
+  }
+
+  // score title container
+  {
+    drawSmallContainer(scoreContainerPos, scoreContainerSize);
+    drawString(game_font, scoreContainerPos + Vec2<uint16_t>(3), "SCORE", game_font_size, RGB565::rgbTo565(0, 0, 0));
+  }
+
+  // level container
+  {
+    Vec2<uint16_t> levelContainerSize = Vec2<uint16_t>((8 * 5) + 6, (8 * 2) + 6);
+    Vec2<uint16_t> levelContainerPos = Vec2<uint16_t>(infoCenter.x - (levelContainerSize.x / 2), infoCenter.y - levelContainerSize.y - 4);
+
+    drawSmallContainer(levelContainerPos, levelContainerSize);
+    drawString(game_font, levelContainerPos + Vec2<uint16_t>(3), "LEVEL", game_font_size, RGB565::rgbTo565(0, 0, 0));
+  }
+
+  // lines container
+  {
+    Vec2<uint16_t> linesContainerSize = Vec2<uint16_t>((8 * 5) + 6, (8 * 2) + 6);
+    Vec2<uint16_t> linesContainerPos = Vec2<uint16_t>(infoCenter.x - (linesContainerSize.x / 2), infoCenter.y + 4);
+
+    drawSmallContainer(linesContainerPos, linesContainerSize);
+    drawString(game_font, linesContainerPos + Vec2<uint16_t>(3), "LINES", game_font_size, RGB565::rgbTo565(0, 0, 0));
+  }
+
+  // next piece container
+  {
+
+  }
+
+  // hold piece container
+  {
+    // Vec2<uint16_t> holdPieceContainerPos = Vec2<uint16_t>(infoContainerPadding);
+    // Vec2<uint16_t> holdPieceContainerSize = Vec2<uint16_t>(BLOCK_SIZE + 6);
+    // drawSmallContainer(holdPieceContainerPos, holdPieceContainerSize);
+    // drawString(game_font, scoreContainerPos + Vec2<uint16_t>(3), "Score", game_font_size, RGB565::rgbTo565(0, 0, 0));
+  }
 }
 
 void loop() {
@@ -1098,32 +1602,26 @@ void loop() {
 
   if ((curMillis - lastGameShapeDrop) > 1000) {
     lastGameShapeDrop = curMillis;
-    dropShape(&game_grid_size, game_block_colors, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, false);
+    dropShape(&game_grid_size, game_block_colors, &game_block_presence, &game_shape_type, &game_shape, &game_shape_rot_index, &game_shape_pos, false);
   } else {
     if (keyboardKeyStates[KEYBOARD_KEY_SPACE] && keyboardChangedStates[KEYBOARD_KEY_SPACE]) {
       lastGameShapeDrop = curMillis;
-      dropShape(&game_grid_size, game_block_colors, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, true);
+      dropShape(&game_grid_size, game_block_colors, &game_block_presence, &game_shape_type, &game_shape, &game_shape_rot_index, &game_shape_pos, true);
     }
   }
 
-  if ((keyboardKeyStates[KEYBOARD_KEY_W] || keyboardKeyStates[KEYBOARD_KEY_ARROW_UP]) && canRotateShapeCW) {
+  if ((keyboardKeyStates[KEYBOARD_KEY_W] && keyboardChangedStates[KEYBOARD_KEY_W]) || (keyboardKeyStates[KEYBOARD_KEY_ARROW_UP] && keyboardChangedStates[KEYBOARD_KEY_ARROW_UP])) {
     // rotate clockwise
-    canRotateShapeCW = false;
-    rotateShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, true);
-  } else if (keyboardKeyStates[KEYBOARD_KEY_Z] && canRotateShapeCCW) {
+    rotateShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_rot_index, &game_shape_pos, true);
+  } else if (keyboardKeyStates[KEYBOARD_KEY_Z] && keyboardChangedStates[KEYBOARD_KEY_Z]) {
     // rotate counter clockwise
-    canRotateShapeCCW = false;
-    rotateShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, false);
-  } else if (canRotateShapeCW == false && (!keyboardKeyStates[KEYBOARD_KEY_W] && !keyboardKeyStates[KEYBOARD_KEY_ARROW_UP])) {
-    canRotateShapeCW = true;
-  } else if (canRotateShapeCCW == false && !keyboardKeyStates[KEYBOARD_KEY_Z]) {
-    canRotateShapeCCW = true;
+    rotateShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_rot_index, &game_shape_pos, false);
   }
 
   if ((curMillis - lastGameManualShapeDrop) > 200) {
-    if (keyboardKeyStates[KEYBOARD_KEY_S] || keyboardKeyStates[KEYBOARD_KEY_ARROW_DOWN]) {
+    if (keyboardKeyStates[KEYBOARD_KEY_S] || keyboardKeyStates[KEYBOARD_KEY_ARROW_DOWN]) {c:\Users\miau\Documents\old\Arduino\cheap_esp32_board_tetris_using_pc\cheap_esp32_board_tetris_using_pc.ino
       uint8_t distMoved = moveShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, DIRECTION_DOWN);
-      if (distMoved > 0) {
+      if (distMoved > 0) {c:\Users\miau\Documents\old\cyd-tetris\cheap_esp32_board_tetris_using_pc\cheap_esp32_board_tetris_using_pc.ino
         lastGameShapeDrop = curMillis;
         lastGameManualShapeDrop = curMillis;
       }
