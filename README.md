@@ -2,7 +2,7 @@
 
 A Tetris clone written for the "Cheap Yellow Display" board (ESP32-2432S028R). The board handles the game logic and drawing, and since it has no built-in keyboard, a small Python script on your PC forwards keypresses to it over serial.
 
-![How the game looks when played](assets/game_showcase.jpg)
+<img alt="How the game looks when played" src="assets/game_showcase.jpg" width="300">
 
 ## What's in this repo
 
