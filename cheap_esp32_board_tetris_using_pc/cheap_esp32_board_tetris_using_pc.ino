@@ -1619,9 +1619,9 @@ void loop() {
   }
 
   if ((curMillis - lastGameManualShapeDrop) > 200) {
-    if (keyboardKeyStates[KEYBOARD_KEY_S] || keyboardKeyStates[KEYBOARD_KEY_ARROW_DOWN]) {c:\Users\miau\Documents\old\Arduino\cheap_esp32_board_tetris_using_pc\cheap_esp32_board_tetris_using_pc.ino
+    if (keyboardKeyStates[KEYBOARD_KEY_S] || keyboardKeyStates[KEYBOARD_KEY_ARROW_DOWN]) {
       uint8_t distMoved = moveShape(&game_grid_size, &game_block_presence, &game_shape_type, &game_shape, &game_shape_pos, DIRECTION_DOWN);
-      if (distMoved > 0) {c:\Users\miau\Documents\old\cyd-tetris\cheap_esp32_board_tetris_using_pc\cheap_esp32_board_tetris_using_pc.ino
+      if (distMoved > 0) {
         lastGameShapeDrop = curMillis;
         lastGameManualShapeDrop = curMillis;
       }
